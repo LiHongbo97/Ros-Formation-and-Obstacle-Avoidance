@@ -1,0 +1,354 @@
+#!/usr/bin/env python
+#################################################################################
+# Copyright 2018 IWIN, SJTU
+#
+# https://iwin-fins.com
+#################################################################################
+
+# Authors: Hongbo Li, Han Wang#
+
+import rospy
+import time
+from geometry_msgs.msg import Twist, Point, Quaternion
+import tf
+from math import radians, copysign, sqrt, pow, pi, atan2,sin,cos
+from tf.transformations import euler_from_quaternion
+import numpy as np
+from sensor_msgs.msg import LaserScan
+
+msg = """
+control your Turtlebot3!
+-----------------------
+this is tb3_1
+-----------------------
+"""
+
+
+binge=1
+
+
+tb3_0_pos=Point()
+tb3_1_pos=Point()
+tb3_2_pos=Point()
+tb3_3_pos=Point()
+tb3_4_pos=Point()
+
+tb3_4_vel=Twist()
+tb3_1_vel=Twist()
+tb3_4_rot=Point()
+K1=0.2
+K2=0.1
+K3=1
+alpha=0
+detect_R=1
+safe_r=0.3
+ID=1
+
+
+class GotoPoint():
+    def __init__(self):
+        rospy.init_node('tb3_1', anonymous=False)
+        #turtlebot3_model = rospy.get_param("model")
+
+        rospy.on_shutdown(self.shutdown)
+        self.cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=5)#5
+        self.tb3_1_positon=rospy.Publisher('/tb3_1_pos',Point,queue_size=5)#5
+        position = Point()
+        move_cmd = Twist()
+        r = rospy.Rate(10)
+        self.tf_listener = tf.TransformListener()
+        self.odom_frame = '/tb3_1/odom'
+        # self.base_frame = '/tb3_0/base_footprint'
+        try:
+            self.tf_listener.waitForTransform(self.odom_frame, '/tb3_1/base_footprint', rospy.Time(), rospy.Duration(1.0))
+            self.base_frame = '/tb3_1/base_footprint'
+        except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+            try:
+                self.tf_listener.waitForTransform(self.odom_frame, '/tb3_1/base_link', rospy.Time(), rospy.Duration(1.0))
+                self.base_frame = '/tb3_1/base_link'
+            except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+                rospy.loginfo("Cannot find transform between odom and base_link or base_footprint")
+                rospy.signal_shutdown("tf Exception")
+        global tb3_0_pos
+        global tb3_1_pos
+        global tb3_2_pos
+        global tb3_3_pos
+        global tb3_4_pos
+
+        (position, rotation) = self.get_odom()
+        rospy.Subscriber('/tb3_0_pos',Point,point_callback_0)
+        rospy.Subscriber('/tb3_2_pos',Point,point_callback_2)
+        rospy.Subscriber('/tb3_3_pos',Point,point_callback_3)
+        rospy.Subscriber('/tb3_4_pos',Point,point_callback_4)
+
+        rospy.Subscriber('/tb3_4_rot',Point,ori_callback_4)
+        rospy.Subscriber('/tb3_4_vel',Twist,vel_callback_4)
+        self.tb3_1_positon.publish(position)
+
+        if tb3_4_pos.x==0:
+            print "wrong"
+            tb3_4_pos.x=tb3_4_pos.x+5
+            tb3_4_pos.y=tb3_4_pos.y
+
+        #print tb3_4_pos.x;print tb3_4_pos.y;
+        #print position.x;print position.y;
+        alpha=0
+        # tb3_1_vel_delta_x=(tb3_4_pos.x-position.x-3*cos(tb3_4_rot.x+alpha))
+        # tb3_1_vel_delta_y=(tb3_4_pos.y-position.y-3*sin(tb3_4_rot.x+alpha))
+        tb3_1_vel_delta_x=(tb3_4_pos.x-position.x-4)
+        tb3_1_vel_delta_y=(tb3_4_pos.y-position.y-2)
+        #print tb3_1_vel_delta_x;print tb3_1_vel_delta_y
+        if abs(tb3_1_vel_delta_x)<0.05:
+            tb3_1_vel_delta_x=0
+        if abs(tb3_1_vel_delta_y)<0.05:
+            tb3_1_vel_delta_y=0
+        goal_x=tb3_1_vel_delta_x+position.x
+        goal_y=tb3_1_vel_delta_y+position.y
+        goal_z=atan2(tb3_1_vel_delta_y,tb3_1_vel_delta_x)
+       # print tb3_1_vel_delta_x;print tb3_1_vel_delta_y
+        if tb3_1_vel_delta_x==0 and tb3_1_vel_delta_y==0:
+            goal_z=0
+        print ('aim_ang1=%f'%(goal_z))
+        distance = sqrt(pow(goal_x - position.x, 2) + pow(goal_y - position.y, 2))
+        print ('dis1=%f'%(distance))
+
+
+        f1.write(str(position.x))
+        f1.write('\n')
+
+        f3.write(str(goal_x))
+        f3.write('\n')
+
+        f2.write(str(position.y))
+        f2.write('\n')
+
+        f4.write(str(goal_y))
+        f4.write('\n')
+
+
+
+
+        # rotation1=rotation
+        # delta_theta=abs(goal_z-rotation1)
+        # move_cmd.angular.z=K2*self.compute_theta(goal_z,rotation1)
+        # print ('aim_ang=%f'%(goal_z))
+        # print ('rotation=%f'%(rotation1))
+        # print ('w=%f'% (move_cmd.angular.z))
+        # move_cmd.linear.x = 0.00
+        # self.cmd_vel.publish(move_cmd)
+        # time.sleep(0.5)
+        # delta_theta=abs(goal_z-rotation1)
+        # if abs(goal_z)>3.14 and abs(rotation1)>3.14:
+        #     delta_theta=0
+        # print "turing"
+        # # move_cmd.linear.x = K1*distance+tb3_4_vel.linear.x
+        # move_cmd.linear.x = K1*distance
+        # move_cmd.angular.z = 0
+        # self.cmd_vel.publish(move_cmd)
+        # print move_cmd.linear.x
+        # time.sleep(0.5)
+        # (position, rotation) = self.get_odom()
+        # distance = sqrt(pow(goal_x - position.x, 2) + pow(goal_y - position.y, 2))
+        # # print ('distance=%f'%(distance))
+        # # print "chasing"
+        # # move_cmd.linear.x = 0.00
+        # # self.cmd_vel.publish(move_cmd)
+
+
+
+
+
+        # # print rotation
+        # # print dd
+        # # print goal_z
+        # rotation1=rotation
+        # delta_theta=abs(goal_z-rotation1)
+        # while delta_theta>0.1:
+        #     move_cmd.angular.z=K2*self.compute_theta(goal_z,rotation1)
+        #     print ('aim_ang=%f'%(goal_z))
+        #     print ('rotation=%f'%(rotation1))
+        #     print ('w=%f'% (move_cmd.angular.z))
+        #     move_cmd.linear.x = 0.00
+        #     self.cmd_vel.publish(move_cmd)
+        #     time.sleep(0.05)
+        #     (position1, rotation1) = self.get_odom()
+        #     delta_theta=abs(goal_z-rotation1)
+        #     if abs(goal_z)>3.14 and abs(rotation1)>3.14:
+        #         delta_theta=0
+        #     print "turing"
+        # # move_cmd.angular.z = 0.00
+        # # self.cmd_vel.publish(move_cmd)
+        # while distance>0.5:
+        #     # move_cmd.linear.x = K1*distance+tb3_4_vel.linear.x
+        #     move_cmd.linear.x = K1*distance
+        #     move_cmd.angular.z = 0
+        #     self.cmd_vel.publish(move_cmd)
+        #     print move_cmd.linear.x
+        #     time.sleep(0.05)
+        #     (position, rotation) = self.get_odom()
+        #     distance = sqrt(pow(goal_x - position.x, 2) + pow(goal_y - position.y, 2))
+        #     print ('distance=%f'%(distance))
+        #     print "chasing"
+        # # move_cmd.linear.x = 0.00
+        # # self.cmd_vel.publish(move_cmd)
+
+
+        global tb3_4_vel
+        angular_now=rotation
+        phi=goal_z
+
+
+        tb3_1_pos=position
+        # pos_nodes=[tb3_0_pos,tb3_1_pos,tb3_2_pos,tb3_3_pos,tb3_4_pos]
+        lidar_nodes=self.lidar(position)
+        if lidar_nodes.x!=10:
+        	pos_nodes=[tb3_0_pos,tb3_1_pos,tb3_2_pos,tb3_3_pos,tb3_4_pos,lidar_nodes]
+        else:
+        	pos_nodes=[tb3_0_pos,tb3_1_pos,tb3_2_pos,tb3_3_pos,tb3_4_pos]
+        temp_x_sum=0
+        temp_y_sum=0
+        for i in range(len(pos_nodes)):
+            print i
+            if i!=ID:
+                # print i
+                # print pos_nodes[i].x
+                r=sqrt(pow(pos_nodes[i].x-pos_nodes[ID].x,2)+pow(pos_nodes[i].y-pos_nodes[ID].y,2))
+                print ('distance between %d is %f'%(i,r))
+                if r>safe_r and r<detect_R:
+                    # temp_x=(pow(detect_R,2)-pow(safe_r,2))*(pos_nodes[i].x-pos_nodes[ID].x)
+                    # temp_y=(pow(detect_R,2)-pow(safe_r,2))*(pos_nodes[i].y-pos_nodes[ID].y)
+                    # temp_d2=pow(pos_nodes[i].x-pos_nodes[ID].x,2)+pow(pos_nodes[i].y-pos_nodes[ID].y,2)
+                    # temp_fenmu=temp_d2-pow(safe_r,2)
+                    # temp_fenmu=pow(temp_fenmu,3)
+                    # temp_x=temp_x/temp_fenmu*(temp_d2-pow(detect_R,2))
+                    # temp_y=temp_y/temp_fenmu*(temp_d2-pow(detect_R,2))
+                    # temp_x_sum=temp_x_sum+temp_x
+                    # temp_y_sum=temp_y_sum+temp_y
+
+                   	temp_x=(1/r-1/detect_R)*(pos_nodes[ID].x-pos_nodes[i].x)
+             		temp_y=(1/r-1/detect_R)*(pos_nodes[ID].y-pos_nodes[i].y)
+             		temp_fenmu=pow(r,3)
+             		temp_x=temp_x/temp_fenmu
+             		temp_y=temp_y/temp_fenmu
+             		temp_x_sum=temp_x_sum+temp_x
+             		temp_y_sum=temp_y_sum+temp_y
+        avoid_delta=temp_x_sum*cos(angular_now)+temp_y_sum*sin(angular_now)
+
+
+
+        tb3_1_vel.linear.x=K1*(tb3_1_vel_delta_x*cos(angular_now)+tb3_1_vel_delta_y*sin(angular_now))+tb3_4_vel.linear.x+K3*avoid_delta
+        #tb3_1_vel.linear.x=K1*(tb3_1_vel_delta_x*cos(angular_now)+tb3_1_vel_delta_y*sin(angular_now))+tb3_4_vel.linear.x
+        #tb3_1_vel.linear.x=K1*(tb3_1_vel_delta_x+tb3_1_vel_delta_y)+tb3_4_vel.linear.x
+        print ('the vel=%f'%(tb3_1_vel.linear.x))
+        # delta_theta=(phi-angular_now)
+        # if abs(phi)>3.14 and abs(angular_now)>3.14:
+        #         delta_theta=0
+        delta_theta=self.compute_theta(phi,angular_now)
+        print ('the delta_ang=%f'%(delta_theta))
+        # tb3_1_vel.angular.z=tb3_4_vel.angular.z+K2*(tb3_1_vel_delta_x+tb3_1_vel_delta_y)
+        tb3_1_vel.angular.z=K2*delta_theta+tb3_4_vel.angular.z
+        self.cmd_vel.publish(tb3_1_vel)
+        # (position, rotation) = self.get_odom()
+        msgs ="""this is tb3_1_theta"""
+        print msgs
+
+    def lidar(self,tb_pos):
+        msg = rospy.wait_for_message("scan", LaserScan)
+        LIDAR_ERR = 0.05
+        LIDAR_MAX = 1.5
+        obstacle=[]
+        min_dis=10
+        min_ang=0
+        min_point=Point()
+        for i in range(360):
+            if i <= 45 or i > 315:
+            	obstacle_pos=Point()
+            	if msg.ranges[i] >= LIDAR_ERR and msg.ranges[i]<=LIDAR_MAX:
+                	obstacle_pos.x=tb_pos.x+msg.ranges[i]*cos(i)
+                	obstacle_pos.y=tb_pos.y+msg.ranges[i]*sin(i)
+                	obstacle.append(obstacle_pos)
+                	if msg.ranges[i] < min_dis:
+                    		min_dis = msg.ranges[i]
+                    		min_ang = i
+        if min_dis<10:
+        	min_point.x=tb_pos.x+min_dis*cos(i)
+        	min_point.y=tb_pos.y+min_dis*sin(i)
+        else:
+        	min_point.x=10
+       	return min_point
+
+
+
+    def compute_theta(self,theta,rotation1):
+        if theta*rotation1<0:
+            if theta>0:
+                if abs(rotation1)+theta<=pi:
+                    w=abs(rotation1)+theta
+                else:
+                    w=-(2*pi+rotation1-theta)
+            else:
+                if rotation1+abs(theta)<=pi:
+                    w=-(abs(theta)+rotation1)
+                else:
+                    w=(2*pi-rotation1+theta)
+        else:
+            w=theta-rotation1
+        return w
+
+
+    def get_odom(self):
+        try:
+            (trans, rot) = self.tf_listener.lookupTransform(self.odom_frame, self.base_frame, rospy.Time(0))
+            rotation = euler_from_quaternion(rot)
+
+        except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+            rospy.loginfo("TF Exception")
+            return
+
+        return (Point(*trans), rotation[2])
+    def shutdown(self):
+        self.cmd_vel.publish(Twist())
+        rospy.sleep(1)
+def point_callback_4(data):
+    global tb3_4_pos
+    tb3_4_pos.x=data.x
+    tb3_4_pos.y=data.y
+def ori_callback_4(data):
+    global tb3_4_rot
+    tb3_4_rot=data
+def vel_callback_4(data):
+    global tb3_4_vel
+    tb3_4_vel=data
+    # print data.x
+def point_callback_0(data):
+    global tb3_0_pos
+    tb3_0_pos.x=data.x
+    tb3_0_pos.y=data.y
+def point_callback_2(data):
+    global tb3_2_pos
+    tb3_2_pos.x=data.x
+    tb3_2_pos.y=data.y
+def point_callback_3(data):
+    global tb3_3_pos
+    tb3_3_pos.x=data.x
+    tb3_3_pos.y=data.y
+
+
+
+
+if __name__ == '__main__':
+	f1=open("/home/iwin1/catkin_ws/src/president/scripts/data/posx.txt","r+")
+	f2=open("/home/iwin1/catkin_ws/src/president/scripts/data/posy.txt","r+")
+	f3=open("/home/iwin1/catkin_ws/src/president/scripts/data/goalx.txt","r+")
+	f4=open("/home/iwin1/catkin_ws/src/president/scripts/data/goaly.txt","r+")
+	f1.truncate();f2.truncate();f3.truncate();f4.truncate();
+	try:
+		while not rospy.is_shutdown():
+			print(msg)
+			binge=binge+1
+			GotoPoint()
+	except:
+		rospy.loginfo("shutdown program.")
+        # print bingg
+	finally:
+		f1.close();f2.close();f3.close();f4.close()
