@@ -1,0 +1,250 @@
+#!/usr/bin/env python
+#################################################################################
+# Copyright 2018 IWIN, SJTU
+#
+# https://iwin-fins.com
+#################################################################################
+
+# Authors: Hongbo Li, Han Wang#
+#coding=utf-8
+import rospy
+import time
+from geometry_msgs.msg import Twist, Point, Quaternion
+import tf
+from math import radians, copysign, sqrt, pow, pi, atan2,cos,sin
+from tf.transformations import euler_from_quaternion
+import numpy as np
+from sensor_msgs.msg import LaserScan
+
+msg = """
+control your Turtlebot3!
+-----------------------
+this is leader
+-----------------------
+"""
+tb_leader_pos=Point()
+tb_follower1_pos=Point()
+tb_follower2_pos=Point()
+tb_leader_vel=Twist()
+
+K1=0.2
+K2=0.1
+K3=1
+detect_R=1
+safe_r=0.3
+ID=0
+
+
+
+class GotoPoint():
+    def __init__(self):
+        rospy.init_node('leader', anonymous=False)
+        #turtlebot3_model = rospy.get_param("model")
+
+        rospy.on_shutdown(self.shutdown)
+        self.cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=5)
+        self.tb_leader_positon=rospy.Publisher('/tb_leader_pos',Point,queue_size=5)
+        self.tb_leader_vel=rospy.Publisher('/tb_leader_vel',Twist,queue_size=5)#5
+        position = Point()
+        move_cmd = Twist()
+        r = rospy.Rate(10)
+        self.tf_listener = tf.TransformListener()
+        self.odom_frame = '/leader/odom'
+        # self.odom_frame = 'odom'
+        try:
+            self.tf_listener.waitForTransform(self.odom_frame, '/leader/base_footprint', rospy.Time(), rospy.Duration(1.0))
+            self.base_frame = '/leader/base_footprint'
+        except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+            try:
+                self.tf_listener.waitForTransform(self.odom_frame, '/leader/base_link', rospy.Time(), rospy.Duration(1.0))
+                self.base_frame = '/leader/base_link'
+            except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+                rospy.loginfo("Cannot find transform between odom and base_link or base_footprint")
+                rospy.signal_shutdown("tf Exception")
+        # print 66
+        (position, rotation) = self.get_odom()
+        # rospy.Subscriber('/tb_leader_pos',Point,point_callback_1)
+        # rospy.Subscriber('/tb_follower1_pos',Point,point_callback_2)
+        # rospy.Subscriber('/tb_follower2_pos',Point,point_callback_3)
+
+        tb_leader_pos.x=position.x
+        tb_leader_pos.y=position.y
+        tb_leader_pos.z=rotation
+        self.tb_leader_positon.publish(tb_leader_pos)
+        global tb_leader_vel
+        global tb_follower1_pos
+        global tb_follower2_pos        
+
+        # tb_leader_pos=position
+
+        # obstacle_pos=self.lidar(position)
+        # rospy.loginfo('position.x of the obstacle : %f', obstacle_pos.x)
+        # rospy.loginfo('position.y of the obstacle : %f', obstacle_pos.y)
+        # # pos_nodes=[tb3_0_pos,tb3_1_pos,tb3_2_pos,tb3_3_pos,tb3_4_pos]
+        # pos_nodes=[tb_leader_pos,obstacle_pos]
+        # temp_x_sum=0
+        # temp_y_sum=0
+        # for i in range(len(pos_nodes)):
+        #     if i!=ID:
+        #         print i
+        #         print pos_nodes[i].x
+        #         r=sqrt(pow(pos_nodes[i].x-pos_nodes[ID].x,2)+pow(pos_nodes[i].y-pos_nodes[ID].y,2))
+        #         print ('distance between %d is %f'%(i,r))
+        #         if r>safe_r and r<detect_R:
+        #             # temp_x=(pow(detect_R,2)-pow(safe_r,2))*(pos_nodes[i].x-pos_nodes[ID].x)
+        #             # temp_y=(pow(detect_R,2)-pow(safe_r,2))*(pos_nodes[i].y-pos_nodes[ID].y)
+        #             # temp_d2=pow(pos_nodes[i].x-pos_nodes[ID].x,2)+pow(pos_nodes[i].y-pos_nodes[ID].y,2)
+        #             # temp_fenmu=temp_d2-pow(safe_r,2)
+        #             # temp_fenmu=pow(temp_fenmu,3)
+        #             # temp_x=temp_x/temp_fenmu*(temp_d2-pow(detect_R,2))
+        #             # temp_y=temp_y/temp_fenmu*(temp_d2-pow(detect_R,2))
+        #             # temp_x_sum=temp_x_sum+temp_x
+        #             # temp_y_sum=temp_y_sum+temp_y
+
+        #             temp_x=(1/r-1/detect_R)*(pos_nodes[ID].x-pos_nodes[i].x)
+        #             temp_y=(1/r-1/detect_R)*(pos_nodes[ID].y-pos_nodes[i].y)
+        #             temp_fenmu=pow(r,3)
+        #             temp_x=temp_x/temp_fenmu
+        #             temp_y=temp_y/temp_fenmu
+        #             temp_x_sum=temp_x_sum+temp_x
+        #             temp_y_sum=temp_y_sum+temp_y
+        # avoid_delta=temp_x_sum*cos(angular_now)+temp_y_sum*sin(angular_now)  
+        # tb3_0_vel.linear.x=K1*(tb3_0_vel_delta_x*cos(angular_now)+tb3_0_vel_delta_y*sin(angular_now))+tb3_4_vel.linear.x+K3*avoid_delta
+        # delta_theta=self.compute_theta(phi,angular_now)
+        # print ('the delta_ang=%f'%(delta_theta))
+        # # tb3_3_vel.angular.z=tb3_4_vel.angular.z+K2*(tb3_0_vel_delta_x+tb3_0_vel_delta_y)
+        tb_leader_vel.linear.x=0.3
+        tb_leader_vel.angular.z=0
+        self.cmd_vel.publish(tb_leader_vel)
+    	self.tb_leader_vel.publish(tb_leader_vel)
+
+
+    def lidar(self,tb_pos):
+        msg = rospy.wait_for_message("scan", LaserScan)
+        LIDAR_ERR = 0.05
+        LIDAR_MAX = 1.5
+        obstacle=[]
+        min_dis=10
+        min_ang=0
+        min_point=Point()
+        for i in range(360):
+            if i <= 45 or i > 315:
+                obstacle_pos=Point()
+                if msg.ranges[i] >= LIDAR_ERR and msg.ranges[i]<=LIDAR_MAX:
+                    obstacle_pos.x=tb_pos.x+msg.ranges[i]*cos(i)
+                    obstacle_pos.y=tb_pos.y+msg.ranges[i]*sin(i)
+                    obstacle.append(obstacle_pos)
+                    if msg.ranges[i] < min_dis:
+                            min_dis = msg.ranges[i]
+                            min_ang = i
+        if min_dis<10:
+            min_point.x=tb_pos.x+min_dis*cos(i/180*pi)
+            min_point.y=tb_pos.y+min_dis*sin(i/180*pi)
+        else:
+            min_point.x=10
+
+        # (min_dis_ave,min_ang_ave)=data_filter(msg.ranges,min_ang,5)
+        # if min_dis_ave<10:
+        #     min_point.x=tb_pos.x+min_dis_ave*cos(min_ang/180*pi)
+        #     min_point.y=tb_pos.y+min_dis_ave*sin(min_ang/180*pi)
+        # else:
+        #     min_point.x=10
+        return min_point
+
+
+    def compute_theta(self,theta,rotation1):
+        if theta*rotation1<0:
+            if theta>0:
+                if abs(rotation1)+theta<=pi:
+                    w=abs(rotation1)+theta
+                else:
+                    w=-(2*pi+rotation1-theta)
+            else:
+                if rotation1+abs(theta)<=pi:
+                    w=-(abs(theta)+rotation1)
+                else:
+                    w=(2*pi-rotation1+theta)
+        else:
+            w=theta-rotation1
+        return w
+    
+    def data_filter(self,data,index,length):
+        m=len(data)
+        if index<length+1:
+            t=length+1-index
+            for b in t:
+                outdata[b]=data[360-b]
+                out_ang[b]=360-b
+            pp=length*2-t
+            for p in pp:
+                outdata[t+p]=data[p]
+                out_ang[t+p]=p
+        elif index>360-length:
+            t=360-index
+            for b in t:
+                outdata[b]=data[index+b]
+                out_ang[b]=index+b
+            pp=length*2-t
+            for p in pp:
+                outdata[t+p]=data[index-p]
+                out_ang[t+p]=index-p
+        else:
+            t=index-5-1
+            pp=11
+            for p in pp:
+                outdata[p]=data[t+p]
+                out_ang[p]=t+p
+        sum_a=0
+        sum_b=0
+        for i in len(outdata):
+            sum_a=sum_a+outdata[i]
+            sum_b=sum_b+out_ang[i]
+        outdata_ave=sum_a/len(outdata)
+        out_ang_ave=sum_b/len(out_ang_ave)
+        return (outdata_ave,out_ang_ave)
+
+
+
+    def get_odom(self):
+        try:
+            (trans, rot) = self.tf_listener.lookupTransform(self.odom_frame, self.base_frame, rospy.Time(0))
+            rotation = euler_from_quaternion(rot)
+
+        except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+            rospy.loginfo("TF Exception")
+            return
+
+        return (Point(*trans), rotation[2])
+    def shutdown(self):
+        self.cmd_vel.publish(Twist())
+        rospy.sleep(1)
+
+def point_callback_1(data):
+    global tb_leader_pos
+    tb_leader_pos.x=data.x
+    tb_leader_pos.y=data.y
+def point_callback_2(data):
+    global tb_follower1_pos
+    tb_follower1_pos.x=data.x
+    tb_follower1_pos.y=data.y
+def point_callback_3(data):
+    global tb_follower2_pos
+    tb_follower2_pos.x=data.x
+    tb_follower2_pos.y=data.y
+
+
+
+
+if __name__ == '__main__':
+    try:
+    	f1=open("/home/iwin1/catkin_ws/src/president/scripts/data/posx.txt","r+")
+    	f1.truncate();
+        while not rospy.is_shutdown():
+            print(msg)
+            GotoPoint()
+
+    except:
+        rospy.loginfo("shutdown program.")
+    finally:
+    	f1.close
+
